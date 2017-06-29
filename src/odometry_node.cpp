@@ -66,6 +66,7 @@ public:
   void spin();
 
 private:
+  bool straight;
   ros::NodeHandle nh_;
   geometry_msgs::Point odometry_msg;
 
@@ -77,6 +78,7 @@ private:
 Odometry::Odometry() : nh_()
 {
   odometry_pub_ = nh_.advertise<geometry_msgs::Point>("data", 10);
+  nh_.param("straight", straight, true);
 }
 
 void Odometry::update()
@@ -84,7 +86,7 @@ void Odometry::update()
   GPIO hall_sensor(164);
   I2cImu imu(nh_);
 
-  double radius = 0.1, last_dist = 0;
+  double radius = 0.055, last_dist = 0;
   int next_state = !hall_sensor;
 
   ros::spinOnce();
@@ -92,6 +94,7 @@ void Odometry::update()
 
   while (ros::ok())
   {
+    nh_.getParam("straight", straight);
     if (hall_sensor && next_state)
     {
       // If 10 readings or less were 1, consider it an error
@@ -112,14 +115,14 @@ void Odometry::update()
       if (next_state)
       {
         next_state = 0;
-        // if(straight)
-        // {
-        // dist += M_PI * radius;
-        ros::spinOnce();
-        double a = z_angle - angle_ini;
-        odometry_msg.x += M_PI * radius * cos(a);
-        odometry_msg.y += M_PI * radius * sin(a);
-        // }
+        if (straight)
+        {
+          dist += M_PI * radius;
+          ros::spinOnce();
+          double a = z_angle - angle_ini;
+          odometry_msg.x += M_PI * radius * cos(a);
+          odometry_msg.y += M_PI * radius * sin(a);
+        }
       }
       else
       {
@@ -146,14 +149,14 @@ void Odometry::update()
         if (!next_state)
         {
           next_state = 1;
-          // if(straight)
-          // {
-          // dist += M_PI * radius;
-          ros::spinOnce();
-          double a = z_angle - angle_ini;
-          odometry_msg.x += M_PI * radius * cos(a);
-          odometry_msg.y += M_PI * radius * sin(a);
-          // }
+          if (straight)
+          {
+            dist += M_PI * radius;
+            ros::spinOnce();
+            double a = z_angle - angle_ini;
+            odometry_msg.x += M_PI * radius * cos(a);
+            odometry_msg.y += M_PI * radius * sin(a);
+          }
         }
         else
         {
