@@ -45,12 +45,12 @@ const std::string GPIO::EDGE_RISE = "rise";
 const std::string GPIO::EDGE_FALL = "fall";
 const std::string GPIO::EDGE_BOTH = "both";
 
-explicit GPIO::GPIO(int gpio)
+GPIO::GPIO(int gpio)
 {
   this->gpio = gpio;
   if (exported())
   {
-    cout << "GPIO " << gpio << " already exported" << endl;
+    std::cout << "GPIO " << gpio << " already exported" << std::endl;
     if (fcntl(fd_value, F_GETFL) != -1)
       // Já aberto
       return;
@@ -63,11 +63,11 @@ explicit GPIO::GPIO(int gpio)
 
   direction(GPIO::IN);
 
-  fd_value = open(("/sys/class/gpio/gpio" + to_string(gpio) + "/value").c_str(), O_RDWR);
+  fd_value = open(("/sys/class/gpio/gpio" + std::to_string(gpio) + "/value").c_str(), O_RDWR);
   if (fd_value == -1)
   {
     perror("open");
-    throw runtime_error("open failed");
+    throw std::runtime_error("open failed");
   }
   poll_targets.events = POLLPRI;
   poll_targets.fd = fd_value;
@@ -76,16 +76,16 @@ explicit GPIO::GPIO(int gpio)
 GPIO::~GPIO()
 {
   if (exported())
-    write_to_file("/sys/class/gpio/unexport", to_string(gpio));
+    write_to_file("/sys/class/gpio/unexport", std::to_string(gpio));
   close(fd_value);
 }
 
 void GPIO::export_gpio()
 {
-  write_to_file("/sys/class/gpio/export", to_string(gpio));
+  write_to_file("/sys/class/gpio/export", std::to_string(gpio));
   if (exported())
     return;
-  throw runtime_error("GPIO export failed");
+  throw std::runtime_error("GPIO export failed");
 }
 
 int GPIO::poll(int timeout)
@@ -104,24 +104,24 @@ void GPIO::poll()
   poll(-1);
 }
 
-void GPIO::direction(const string &direction)
+void GPIO::direction(const std::string &direction)
 {
-  write_to_file("/sys/class/gpio/gpio" + to_string(gpio) + "/direction", direction);
+  write_to_file("/sys/class/gpio/gpio" + std::to_string(gpio) + "/direction", direction);
 }
 
 void GPIO::active_low()
 {
-  write_to_file("/sys/class/gpio/gpio" + to_string(gpio) + "/active_low", "1");
+  write_to_file("/sys/class/gpio/gpio" + std::to_string(gpio) + "/active_low", "1");
 }
 
-void GPIO::edge(const string &edge_type)
+void GPIO::edge(const std::string &edge_type)
 {
-  write_to_file("/sys/class/gpio/gpio" + to_string(gpio) + "/edge", edge_type);
+  write_to_file("/sys/class/gpio/gpio" + std::to_string(gpio) + "/edge", edge_type);
 }
 
 void GPIO::operator=(bool value)
 {
-  write_to_file("/sys/class/gpio/gpio" + to_string(gpio) + "/value", to_string(value));
+  write_to_file("/sys/class/gpio/gpio" + std::to_string(gpio) + "/value", std::to_string(value));
 }
 
 GPIO::operator bool() const
@@ -129,16 +129,16 @@ GPIO::operator bool() const
   return read();
 }
 
-void GPIO::write_to_file(const string& name, const string& value)
+void GPIO::write_to_file(const std::string& name, const std::string& value)
 {
-  fstream file(name, fstream::out);
+  std::fstream file(name, std::fstream::out);
   file << value;
 }
 
 int GPIO::read() const
 {
   int value;
-  fstream file("/sys/class/gpio/gpio" + to_string(gpio) + "/value", fstream::in);
+  std::fstream file("/sys/class/gpio/gpio" + std::to_string(gpio) + "/value", std::fstream::in);
   file >> value;
   return value;
 }
@@ -146,14 +146,14 @@ int GPIO::read() const
 bool GPIO::exported()
 {
   struct stat st;
-  if (stat(("/sys/class/gpio/gpio" + to_string(gpio)).c_str(), &st) == -1)
+  if (stat(("/sys/class/gpio/gpio" + std::to_string(gpio)).c_str(), &st) == -1)
   {
     if (errno == ENOENT)
       return 0;
     else
     {
       perror("stat");
-      throw runtime_error("stat error");
+      throw std::runtime_error("stat error");
     }
   }
   return st.st_mode & S_IFDIR;

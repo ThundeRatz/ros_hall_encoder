@@ -117,7 +117,6 @@ void Odometry::update()
         next_state = 0;
         if (straight)
         {
-          dist += M_PI * radius;
           ros::spinOnce();
           double a = z_angle - angle_ini;
           odometry_msg.x += M_PI * radius * cos(a);
@@ -151,7 +150,6 @@ void Odometry::update()
           next_state = 1;
           if (straight)
           {
-            dist += M_PI * radius;
             ros::spinOnce();
             double a = z_angle - angle_ini;
             odometry_msg.x += M_PI * radius * cos(a);
