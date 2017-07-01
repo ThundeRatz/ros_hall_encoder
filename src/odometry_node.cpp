@@ -24,6 +24,7 @@
 
 #include <ros/ros.h>
 #include <std_msgs/String.h>
+#include <std_msgs/Float64.h>
 #include <geometry_msgs/Point.h>
 #include <geometry_msgs/Vector3.h>
 
@@ -32,7 +33,10 @@
 #include <cmath>
 #include <iostream>
 
-double z_angle;
+namespace Parameters
+{
+  double z_angle;
+}
 
 // Imu subscriber
 class I2cImu
@@ -51,7 +55,7 @@ public:
       return;
     }
 
-    z_angle = euler_msg->z;
+    Parameters::z_angle = euler_msg->z;
   }
 private:
   ros::Subscriber euler_sub;
@@ -67,10 +71,15 @@ public:
 
 private:
   bool straight;
+  bool reset;
+
   ros::NodeHandle nh_;
+
   geometry_msgs::Point odometry_msg;
+  std_msgs::Float64 distance_msg;
 
   ros::Publisher odometry_pub_;
+  ros::Publisher distance_pub_;
 
   ros::Time last_update_;
 };
@@ -78,7 +87,9 @@ private:
 Odometry::Odometry() : nh_()
 {
   odometry_pub_ = nh_.advertise<geometry_msgs::Point>("data", 10);
+  distance_pub_ = nh_.advertise<std_msgs::Float64>("distance", 10);
   nh_.param("straight", straight, true);
+  nh_.param("reset", reset, false);
 }
 
 void Odometry::update()
@@ -90,12 +101,22 @@ void Odometry::update()
   int next_state = !hall_sensor;
 
   ros::spinOnce();
-  double angle_ini = z_angle;
+  double angle_ini = Parameters::z_angle;
 
   while (ros::ok())
   {
     nh_.getParam("straight", straight);
-    if (hall_sensor && next_state)
+    nh_.getParam("reset", reset);
+    if (!straight)
+    {
+      distance_msg.data = 0;
+    }
+    else if (reset)
+    {
+      distance_msg.data = -1;
+      nh_.setParam("reset", false);
+    }
+    else if (hall_sensor && next_state)
     {
       // If 10 readings or less were 1, consider it an error
       for (int i = 0; i < 10; i++)
@@ -106,8 +127,8 @@ void Odometry::update()
         }
         else
         {
-          i = 10;
           next_state = 0;
+          break;
         }
       }
       // If more than 10 readings were 1, than the state of the sensor
@@ -115,13 +136,11 @@ void Odometry::update()
       if (next_state)
       {
         next_state = 0;
-        if (straight)
-        {
-          ros::spinOnce();
-          double a = z_angle - angle_ini;
-          odometry_msg.x += M_PI * radius * cos(a);
-          odometry_msg.y += M_PI * radius * sin(a);
-        }
+        ros::spinOnce();
+        double a = Parameters::z_angle - angle_ini;
+        odometry_msg.x += M_PI * radius * cos(a);
+        odometry_msg.y += M_PI * radius * sin(a);
+        distance_msg.data = M_PI * radius;
       }
       else
       {
@@ -140,21 +159,19 @@ void Odometry::update()
         }
         else
         {
-          i = 10;
           next_state = 1;
+          break;
         }
         // If more than 10 readings were 0, than the state of the sensor
         // is really 0, so the next state must be 1.
         if (!next_state)
         {
           next_state = 1;
-          if (straight)
-          {
-            ros::spinOnce();
-            double a = z_angle - angle_ini;
-            odometry_msg.x += M_PI * radius * cos(a);
-            odometry_msg.y += M_PI * radius * sin(a);
-          }
+          ros::spinOnce();
+          double a = Parameters::z_angle - angle_ini;
+          odometry_msg.x += M_PI * radius * cos(a);
+          odometry_msg.y += M_PI * radius * sin(a);
+          distance_msg.data = M_PI * radius;
         }
         else
         {
@@ -164,6 +181,7 @@ void Odometry::update()
     }
     odometry_msg.z = 0;
     odometry_pub_.publish(odometry_msg);
+    distance_pub_.publish(distance_msg);
   }
 }
 
