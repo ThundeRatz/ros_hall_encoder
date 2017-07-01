@@ -27,6 +27,7 @@
 #include <std_msgs/Float64.h>
 #include <geometry_msgs/Point.h>
 #include <geometry_msgs/Vector3.h>
+#include <std_msgs/Bool.h>
 
 #include "gpio/gpio.h"
 
@@ -77,36 +78,41 @@ private:
 
   geometry_msgs::Point odometry_msg;
   std_msgs::Float64 distance_msg;
+  std_msgs::Bool stopped_msg;
 
   ros::Publisher odometry_pub_;
   ros::Publisher distance_pub_;
-
-  ros::Time last_update_;
+  ros::Publisher stopped_pub_;
 };
 
 Odometry::Odometry() : nh_()
 {
   odometry_pub_ = nh_.advertise<geometry_msgs::Point>("data", 10);
   distance_pub_ = nh_.advertise<std_msgs::Float64>("distance", 10);
+  stopped_pub_ = nh_.advertise<std_msgs::Bool>("stopped", 10);
+
   nh_.param("straight", straight, true);
   nh_.param("reset", reset, false);
 }
 
-void Odometry::update()
+void Odometry::spin()
 {
   GPIO hall_sensor(164);
   I2cImu imu(nh_);
 
   double radius = 0.055, last_dist = 0;
   int next_state = !hall_sensor;
-
   ros::spinOnce();
   double angle_ini = Parameters::z_angle;
-
+  double timer = ros::Time::now().toSec();
   while (ros::ok())
   {
     nh_.getParam("straight", straight);
     nh_.getParam("reset", reset);
+    if (ros::Time::now().toSec() - timer >= 1)
+      stopped_msg.data = true;
+    else
+      stopped_msg.data = false;
     if (!straight)
     {
       distance_msg.data = 0;
@@ -141,6 +147,7 @@ void Odometry::update()
         odometry_msg.x += M_PI * radius * cos(a);
         odometry_msg.y += M_PI * radius * sin(a);
         distance_msg.data = M_PI * radius;
+        timer = ros::Time::now().toSec();
       }
       else
       {
@@ -172,6 +179,7 @@ void Odometry::update()
           odometry_msg.x += M_PI * radius * cos(a);
           odometry_msg.y += M_PI * radius * sin(a);
           distance_msg.data = M_PI * radius;
+          timer = ros::Time::now().toSec();
         }
         else
         {
@@ -182,24 +190,13 @@ void Odometry::update()
     odometry_msg.z = 0;
     odometry_pub_.publish(odometry_msg);
     distance_pub_.publish(distance_msg);
+    stopped_pub_.publish(stopped_msg);
   }
 }
-
-void Odometry::spin()
-{
-  ros::Rate r(1.0);
-  while (ros::ok())
-  {
-    update();
-    r.sleep();
-  }
-}
-
 
 int main(int argc, char** argv)
 {
   ros::init(argc, argv, "odometry_publisher");
-
   Odometry odometry;
   odometry.spin();
 }
