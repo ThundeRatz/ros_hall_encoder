@@ -97,7 +97,7 @@ Odometry::Odometry() : nh_()
 
 void Odometry::spin()
 {
-  GPIO hall_sensor(164);
+  GPIO hall_sensor(165);
   I2cImu imu(nh_);
 
   double radius = 0.055, last_dist = 0;
@@ -115,11 +115,11 @@ void Odometry::spin()
       stopped_msg.data = false;
     if (!straight)
     {
-      distance_msg.data = 0;
+      distance_msg.data += 0;
     }
     else if (reset)
     {
-      distance_msg.data = -1;
+      distance_msg.data = 0;
       nh_.setParam("reset", false);
     }
     else if (hall_sensor && next_state)
@@ -146,7 +146,7 @@ void Odometry::spin()
         double a = Parameters::z_angle - angle_ini;
         odometry_msg.x += M_PI * radius * cos(a);
         odometry_msg.y += M_PI * radius * sin(a);
-        distance_msg.data = M_PI * radius;
+        distance_msg.data += M_PI * radius;
         timer = ros::Time::now().toSec();
       }
       else
@@ -178,7 +178,7 @@ void Odometry::spin()
           double a = Parameters::z_angle - angle_ini;
           odometry_msg.x += M_PI * radius * cos(a);
           odometry_msg.y += M_PI * radius * sin(a);
-          distance_msg.data = M_PI * radius;
+          distance_msg.data += M_PI * radius;
           timer = ros::Time::now().toSec();
         }
         else
