@@ -73,6 +73,11 @@ public:
 private:
   bool straight;
   bool reset;
+  double init_angle;
+  double x_event;
+  double y_event;
+  bool enable_set_coordinates;
+  bool reversed;
 
   ros::NodeHandle nh_;
 
@@ -93,6 +98,11 @@ Odometry::Odometry() : nh_()
 
   nh_.param("straight", straight, true);
   nh_.param("reset", reset, false);
+  nh_.param("init_angle", init_angle, 0.0);
+  nh_.param("x_event", x_event, 0.0);
+  nh_.param("y_event", y_event, 0.0);
+  nh_.param("enable_set_coordinates", enable_set_coordinates, false);
+  nh_.param("reversed", reversed, false);
 }
 
 void Odometry::spin()
@@ -100,15 +110,26 @@ void Odometry::spin()
   GPIO hall_sensor(165);
   I2cImu imu(nh_);
 
-  double radius = 0.055, last_dist = 0;
+  double radius = 0.0575, last_dist = 0;
   int next_state = !hall_sensor;
   ros::spinOnce();
-  double angle_ini = Parameters::z_angle;
+  nh_.setParam("init_angle", Parameters::z_angle);
   double timer = ros::Time::now().toSec();
   while (ros::ok())
   {
+    nh_.getParam("init_angle", init_angle);
     nh_.getParam("straight", straight);
     nh_.getParam("reset", reset);
+    nh_.getParam("enable_set_coordinates", enable_set_coordinates);
+    nh_.getParam("reversed", reversed);
+    if (enable_set_coordinates)
+    {
+      nh_.getParam("x_event", x_event);
+      nh_.getParam("y_event", y_event);
+      odometry_msg.x = x_event;
+      odometry_msg.y = y_event;
+      nh_.setParam("enable_set_coordinates", false);
+    }
     if (ros::Time::now().toSec() - timer >= 1)
       stopped_msg.data = true;
     else
@@ -127,6 +148,11 @@ void Odometry::spin()
       // If 10 readings or less were 1, consider it an error
       for (int i = 0; i < 10; i++)
       {
+        if (!ros::ok())
+        {
+          ROS_INFO("ROS stopped.");
+          return;
+        }
         if (hall_sensor)
         {
           next_state = 1;
@@ -143,10 +169,19 @@ void Odometry::spin()
       {
         next_state = 0;
         ros::spinOnce();
-        double a = Parameters::z_angle - angle_ini;
-        odometry_msg.x += M_PI * radius * cos(a);
-        odometry_msg.y += M_PI * radius * sin(a);
-        distance_msg.data += M_PI * radius;
+        double a = Parameters::z_angle - init_angle;
+        if (reversed)
+        {
+          odometry_msg.x -= M_PI * radius * cos(a);
+          odometry_msg.y -= M_PI * radius * sin(a);
+          distance_msg.data -= M_PI * radius;
+        }
+        else if (straight)
+        {
+          odometry_msg.x += M_PI * radius * cos(a);
+          odometry_msg.y += M_PI * radius * sin(a);
+          distance_msg.data += M_PI * radius;
+        }
         timer = ros::Time::now().toSec();
       }
       else
@@ -160,6 +195,11 @@ void Odometry::spin()
       // If 10 readings or less were 0, consider it an error
       for (int i = 0; i < 10; i++)
       {
+        if (!ros::ok())
+        {
+          ROS_INFO("ROS stopped.");
+          return;
+        }
         if (!hall_sensor)
         {
           next_state = 0;
@@ -169,23 +209,32 @@ void Odometry::spin()
           next_state = 1;
           break;
         }
+      }
         // If more than 10 readings were 0, than the state of the sensor
         // is really 0, so the next state must be 1.
         if (!next_state)
         {
           next_state = 1;
           ros::spinOnce();
-          double a = Parameters::z_angle - angle_ini;
-          odometry_msg.x += M_PI * radius * cos(a);
-          odometry_msg.y += M_PI * radius * sin(a);
-          distance_msg.data += M_PI * radius;
+          double a = Parameters::z_angle - init_angle;
+          if (reversed)
+          {
+              odometry_msg.x -= M_PI * radius * cos(a);
+              odometry_msg.y -= M_PI * radius * sin(a);
+              distance_msg.data -= M_PI * radius;
+          }
+          else if (straight)
+          {
+              odometry_msg.x += M_PI * radius * cos(a);
+              odometry_msg.y += M_PI * radius * sin(a);
+              distance_msg.data += M_PI * radius;
+          }
           timer = ros::Time::now().toSec();
         }
         else
         {
           next_state = 0;
         }
-      }
     }
     odometry_msg.z = 0;
     odometry_pub_.publish(odometry_msg);
