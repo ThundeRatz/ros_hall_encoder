@@ -28,15 +28,21 @@
 #include <geometry_msgs/Point.h>
 #include <geometry_msgs/Vector3.h>
 #include <std_msgs/Bool.h>
+#include <nav_msgs/Odometry.h>
 
 #include "gpio/gpio.h"
 
 #include <cmath>
 #include <iostream>
 
-namespace Parameters
+namespace ImuData
 {
   double z_angle;
+  double angular_velocity;
+  double quat_x;
+  double quat_y;
+  double quat_z;
+  double quat_w;
 }
 
 // Imu subscriber
@@ -46,6 +52,7 @@ public:
   explicit I2cImu(ros::NodeHandle node_handle)
   {
     euler_sub = node_handle.subscribe("/localization/imu/euler", 10, &I2cImu::euler_callback, this);
+    imu_sub = node_handle.subscribe("/localization/imu/data", 10, &I2cImu::imu_callback, this);
   }
 
   void euler_callback(const geometry_msgs::Vector3::ConstPtr& euler_msg)
@@ -56,60 +63,67 @@ public:
       return;
     }
 
-    Parameters::z_angle = euler_msg->z;
+    ImuData::z_angle = euler_msg->z;
+  }
+
+  void imu_callback(const sensor_msgs::Imu::ConstPtr& imu_msg)
+  {
+    if (imu_msg == NULL)
+    {
+      ROS_INFO("Invalid IMU msg.");
+      return;
+    }
+    ImuData::angular_velocity = imu_msg->angular_velocity.z;
+    ImuData::quat_x = imu_msg->orientation.x;
+    ImuData::quat_y = imu_msg->orientation.y;
+    ImuData::quat_z = imu_msg->orientation.z;
+    ImuData::quat_w = imu_msg->orientation.w;
   }
 private:
   ros::Subscriber euler_sub;
+  ros::Subscriber imu_sub;
 };
 
-class Odometry
+int main(int argc, char** argv)
 {
-public:
-  Odometry();
-
-  void update();
-  void spin();
-
-private:
-  bool straight;
-  bool reset;
+  ros::init(argc, argv, "odometry_publisher");
+  GPIO hall_sensor(164);
 
   ros::NodeHandle nh_;
-
-  geometry_msgs::Point odometry_msg;
-  std_msgs::Float64 distance_msg;
-  std_msgs::Bool stopped_msg;
-
-  ros::Publisher odometry_pub_;
-  ros::Publisher distance_pub_;
-  ros::Publisher stopped_pub_;
-};
-
-Odometry::Odometry() : nh_()
-{
-  odometry_pub_ = nh_.advertise<geometry_msgs::Point>("data", 10);
-  distance_pub_ = nh_.advertise<std_msgs::Float64>("distance", 10);
-  stopped_pub_ = nh_.advertise<std_msgs::Bool>("stopped", 10);
-
-  nh_.param("straight", straight, true);
-  nh_.param("reset", reset, false);
-}
-
-void Odometry::spin()
-{
-  GPIO hall_sensor(164);
+  ros::Publisher odometry_pub_ = nh_.advertise<nav_msgs::Odometry>("odom", 10);
+  nav_msgs::Odometry odometry_msg;
   I2cImu imu(nh_);
+  odometry_msg.pose.pose.position.z = 0.0;
+  odometry_msg.twist.twist.linear.z = 0.0;
+  odometry_msg.twist.twist.angular.x = 0.0;
+  odometry_msg.twist.twist.angular.y = 0.0;
+  
+  double x = 0.0;
+  double y = 0.0;
+  
+  double vx = 0.0;
+  double vy = 0.0;
+
+  double dt;
+  double dx = 0;
+  double dy = 0;
 
   double radius = 0.055, last_dist = 0;
   int next_state = !hall_sensor;
   ros::spinOnce();
-  double angle_ini = Parameters::z_angle;
-  double timer = ros::Time::now().toSec();
-  while (ros::ok())
+  double angle_ini = ImuData::z_angle;
+  ros::Time current_time, last_time;
+  current_time = ros::Time::now();
+  last_time = ros::Time::now();
+  ros::Rate r(50.0);
+  while (nh_::ok())
   {
+    dx = 0;
+    dy = 0;
+    ros::spinOnce();
     nh_.getParam("straight", straight);
     nh_.getParam("reset", reset);
-    if (ros::Time::now().toSec() - timer >= 1)
+    if (vx == 0 && vy == 0)
       stopped_msg.data = true;
     else
       stopped_msg.data = false;
@@ -122,6 +136,8 @@ void Odometry::spin()
       distance_msg.data = -1;
       nh_.setParam("reset", false);
     }
+    current_time = ros::Time::now();
+    dt = (current_time - last_time).toSec();
     else if (hall_sensor && next_state)
     {
       // If 10 readings or less were 1, consider it an error
@@ -142,12 +158,10 @@ void Odometry::spin()
       if (next_state)
       {
         next_state = 0;
-        ros::spinOnce();
-        double a = Parameters::z_angle - angle_ini;
-        odometry_msg.x += M_PI * radius * cos(a);
-        odometry_msg.y += M_PI * radius * sin(a);
+        double a = ImuData::z_angle - angle_ini;
+        dx = M_PI * radius * cos(a);
+        dy = M_PI * radius * sin(a);
         distance_msg.data = M_PI * radius;
-        timer = ros::Time::now().toSec();
       }
       else
       {
@@ -174,12 +188,10 @@ void Odometry::spin()
         if (!next_state)
         {
           next_state = 1;
-          ros::spinOnce();
-          double a = Parameters::z_angle - angle_ini;
-          odometry_msg.x += M_PI * radius * cos(a);
-          odometry_msg.y += M_PI * radius * sin(a);
+          double a = ImuData::z_angle - angle_ini;
+          dx = M_PI * radius * cos(a);
+          dy = M_PI * radius * sin(a);
           distance_msg.data = M_PI * radius;
-          timer = ros::Time::now().toSec();
         }
         else
         {
@@ -187,16 +199,24 @@ void Odometry::spin()
         }
       }
     }
-    odometry_msg.z = 0;
+    x += dx;
+    y += dy;
+    if (dt > 0.5)
+    {
+      vx = dx / dt;
+      vy = dy / dt;
+      last_time = current_time;
+    }
+    odometry_msg.pose.pose.position.x = x;
+    odometry_msg.pose.pose.position.y = y;
+    odometry_msg.twist.twist.linear.x = vx;
+    odometry_msg.twist.twist.linear.y = vy;
+    odometry_msg.pose.pose.orientation.x = ImuData::quat_x;
+    odometry_msg.pose.pose.orientation.y = ImuData::quat_y;
+    odometry_msg.pose.pose.orientation.z = ImuData::quat_z;
+    odometry_msg.pose.pose.orientation.w = ImuData::quat_w;
     odometry_pub_.publish(odometry_msg);
     distance_pub_.publish(distance_msg);
     stopped_pub_.publish(stopped_msg);
   }
-}
-
-int main(int argc, char** argv)
-{
-  ros::init(argc, argv, "odometry_publisher");
-  Odometry odometry;
-  odometry.spin();
 }
