@@ -28,15 +28,17 @@
 #include <geometry_msgs/Point.h>
 #include <geometry_msgs/Vector3.h>
 #include <std_msgs/Bool.h>
+#include <nav_msgs/Odometry.h>
+#include <sensor_msgs/Imu.h>
 
 #include "gpio/gpio.h"
 
 #include <cmath>
 #include <iostream>
 
-namespace Parameters
+namespace ImuData
 {
-  double z_angle;
+  double z_angle, quat_x, quat_y, quat_z, quat_w, angular_velocity;
 }
 
 // Imu subscriber
@@ -46,20 +48,37 @@ public:
   explicit I2cImu(ros::NodeHandle node_handle)
   {
     euler_sub = node_handle.subscribe("/localization/imu/euler", 10, &I2cImu::euler_callback, this);
+    imu_sub = node_handle.subscribe("/localization/imu/data", 10, &I2cImu::imu_callback, this);
   }
 
   void euler_callback(const geometry_msgs::Vector3::ConstPtr& euler_msg)
   {
     if (euler_msg == NULL)
     {
-      ROS_INFO("Invalid euler msg.");
+      ROS_INFO("Invalid euler message.");
       return;
     }
 
-    Parameters::z_angle = euler_msg->z;
+    ImuData::z_angle = euler_msg->z;
   }
+
+  void imu_callback(const sensor_msgs::Imu::ConstPtr& imu_msg)
+  {
+    if (imu_msg == NULL)
+    {
+      ROS_INFO("Invalid IMU message.");
+      return;
+    }
+    ImuData::angular_velocity = imu_msg->angular_velocity.z;
+    ImuData::quat_x = imu_msg->orientation.x;
+    ImuData::quat_y = imu_msg->orientation.y;
+    ImuData::quat_z = imu_msg->orientation.z;
+    ImuData::quat_w = imu_msg->orientation.w;
+  }
+
 private:
   ros::Subscriber euler_sub;
+  ros::Subscriber imu_sub;
 };
 
 class Odometry
@@ -81,7 +100,7 @@ private:
 
   ros::NodeHandle nh_;
 
-  geometry_msgs::Point odometry_msg;
+  nav_msgs::Odometry odometry_msg;
   std_msgs::Float64 distance_msg;
   std_msgs::Bool stopped_msg;
 
@@ -92,7 +111,7 @@ private:
 
 Odometry::Odometry() : nh_()
 {
-  odometry_pub_ = nh_.advertise<geometry_msgs::Point>("data", 10);
+  odometry_pub_ = nh_.advertise<nav_msgs::Odometry>("wheel_encoder", 10);
   distance_pub_ = nh_.advertise<std_msgs::Float64>("distance", 10);
   stopped_pub_ = nh_.advertise<std_msgs::Bool>("stopped", 10);
 
@@ -110,27 +129,37 @@ void Odometry::spin()
   GPIO hall_sensor(165);
   I2cImu imu(nh_);
 
-  double radius = 0.0575, last_dist = 0;
+  double radius = 0.0575;
+  double linear_velocity = 0.0;
+  double linear_distance = 0.0;
+  double current_dist = 0.0, last_dist = 0.0;
+  double ds = 0.0;
+  double x = 0.0, y = 0.0, dx = 0.0, dy = 0.0, dt;
   int next_state = !hall_sensor;
   ros::spinOnce();
-  nh_.setParam("init_angle", Parameters::z_angle);
-  double timer = ros::Time::now().toSec();
+  nh_.setParam("init_angle", ImuData::z_angle);
+  ros::Time last_time = ros::Time::now();
+  ros::Time current_time = ros::Time::now();
+  ros::Rate r(20);
   while (ros::ok())
   {
+    ros::spinOnce();
     nh_.getParam("init_angle", init_angle);
     nh_.getParam("straight", straight);
     nh_.getParam("reset", reset);
     nh_.getParam("enable_set_coordinates", enable_set_coordinates);
     nh_.getParam("reversed", reversed);
+    current_time = ros::Time::now();
+    dx = dy = ds = 0;
     if (enable_set_coordinates)
     {
       nh_.getParam("x_event", x_event);
       nh_.getParam("y_event", y_event);
-      odometry_msg.x = x_event;
-      odometry_msg.y = y_event;
+      x = x_event;
+      y = y_event;
       nh_.setParam("enable_set_coordinates", false);
     }
-    if (ros::Time::now().toSec() - timer >= 1)
+    if (linear_velocity == 0)
       stopped_msg.data = true;
     else
       stopped_msg.data = false;
@@ -140,7 +169,7 @@ void Odometry::spin()
     }
     else if (reset)
     {
-      distance_msg.data = 0;
+      current_dist = last_dist = 0;
       nh_.setParam("reset", false);
     }
     else if (hall_sensor && next_state)
@@ -168,21 +197,13 @@ void Odometry::spin()
       if (next_state)
       {
         next_state = 0;
-        ros::spinOnce();
-        double a = Parameters::z_angle - init_angle;
-        if (reversed)
+        if (straight)
         {
-          odometry_msg.x -= M_PI * radius * cos(a);
-          odometry_msg.y -= M_PI * radius * sin(a);
-          distance_msg.data -= M_PI * radius;
+          double a = ImuData::z_angle - init_angle;
+          ds = M_PI * radius;
+          dx = ds * cos(a);
+          dy = ds * sin(a);
         }
-        else if (straight)
-        {
-          odometry_msg.x += M_PI * radius * cos(a);
-          odometry_msg.y += M_PI * radius * sin(a);
-          distance_msg.data += M_PI * radius;
-        }
-        timer = ros::Time::now().toSec();
       }
       else
       {
@@ -215,28 +236,53 @@ void Odometry::spin()
         if (!next_state)
         {
           next_state = 1;
-          ros::spinOnce();
-          double a = Parameters::z_angle - init_angle;
-          if (reversed)
+          if (straight)
           {
-              odometry_msg.x -= M_PI * radius * cos(a);
-              odometry_msg.y -= M_PI * radius * sin(a);
-              distance_msg.data -= M_PI * radius;
+            double a = ImuData::z_angle - init_angle;
+            ds = M_PI * radius;
+            dx = ds * cos(a);
+            dy = ds * sin(a);
           }
-          else if (straight)
-          {
-              odometry_msg.x += M_PI * radius * cos(a);
-              odometry_msg.y += M_PI * radius * sin(a);
-              distance_msg.data += M_PI * radius;
-          }
-          timer = ros::Time::now().toSec();
         }
         else
         {
           next_state = 0;
         }
     }
-    odometry_msg.z = 0;
+    dt = (current_time - last_time).toSec();
+    current_dist += ds;
+    if (reversed)
+    {
+      x -= dx;
+      y -= dy;
+      if (dt > 0.5)
+      {
+        linear_velocity -= (current_dist - last_dist) / dt;
+        last_dist = current_dist;
+      }
+    }
+    else
+    {
+      x += dx;
+      y += dy;
+      if (dt > 0.5)
+      {
+        linear_velocity += (current_dist - last_dist) / dt;
+        last_dist = current_dist;
+      }
+    }
+    odometry_msg.header.stamp = current_time;
+    odometry_msg.header.frame_id = "odom";
+    odometry_msg.pose.pose.position.x = x;
+    odometry_msg.pose.pose.position.y = y;
+    odometry_msg.pose.pose.orientation.x = ImuData::quat_x;
+    odometry_msg.pose.pose.orientation.y = ImuData::quat_y;
+    odometry_msg.pose.pose.orientation.z = ImuData::quat_z;
+    odometry_msg.pose.pose.orientation.w = ImuData::quat_w;
+    odometry_msg.child_frame_id = "base_link";
+    odometry_msg.twist.twist.linear.x = linear_velocity;
+    odometry_msg.twist.twist.angular.z = ImuData::angular_velocity;
+    distance_msg.data = current_dist;
     odometry_pub_.publish(odometry_msg);
     distance_pub_.publish(distance_msg);
     stopped_pub_.publish(stopped_msg);
