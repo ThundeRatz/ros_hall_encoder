@@ -103,10 +103,12 @@ private:
   nav_msgs::Odometry odometry_msg;
   std_msgs::Float64 distance_msg;
   std_msgs::Bool stopped_msg;
+  geometry_msgs::Point position_msg;
 
   ros::Publisher odometry_pub_;
   ros::Publisher distance_pub_;
   ros::Publisher stopped_pub_;
+  ros::Publisher position_pub_;
 };
 
 Odometry::Odometry() : nh_()
@@ -114,6 +116,7 @@ Odometry::Odometry() : nh_()
   odometry_pub_ = nh_.advertise<nav_msgs::Odometry>("wheel_encoder", 10);
   distance_pub_ = nh_.advertise<std_msgs::Float64>("distance", 10);
   stopped_pub_ = nh_.advertise<std_msgs::Bool>("stopped", 10);
+  position_pub_ = nh_.advertise<geometry_msgs::Point>("position", 10);
 
   nh_.param("straight", straight, true);
   nh_.param("reset", reset, false);
@@ -273,19 +276,16 @@ void Odometry::spin()
     }
     odometry_msg.header.stamp = current_time;
     odometry_msg.header.frame_id = "odom";
-    odometry_msg.pose.pose.position.x = x;
-    odometry_msg.pose.pose.position.y = y;
-    odometry_msg.pose.pose.orientation.x = ImuData::quat_x;
-    odometry_msg.pose.pose.orientation.y = ImuData::quat_y;
-    odometry_msg.pose.pose.orientation.z = ImuData::quat_z;
-    odometry_msg.pose.pose.orientation.w = ImuData::quat_w;
     odometry_msg.child_frame_id = "base_link";
     odometry_msg.twist.twist.linear.x = linear_velocity;
     odometry_msg.twist.twist.angular.z = ImuData::angular_velocity;
     distance_msg.data = current_dist;
+    position_msg.x = x;
+    position_msg.y = y;
     odometry_pub_.publish(odometry_msg);
     distance_pub_.publish(distance_msg);
     stopped_pub_.publish(stopped_msg);
+    position_pub_.publish(position_msg);
   }
 }
 
