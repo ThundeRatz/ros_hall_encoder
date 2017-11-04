@@ -34,6 +34,7 @@
 #include "gpio/gpio.h"
 
 #include <cmath>
+#include <vector>
 #include <iostream>
 
 namespace ImuData
@@ -97,6 +98,8 @@ private:
   double y_event;
   bool enable_set_coordinates;
   bool reversed;
+  std::vector<double> pose_covariance;
+  std::vector<double> twist_covariance;
 
   ros::NodeHandle nh_;
 
@@ -125,6 +128,14 @@ Odometry::Odometry() : nh_()
   nh_.param("y_event", y_event, 0.0);
   nh_.param("enable_set_coordinates", enable_set_coordinates, false);
   nh_.param("reversed", reversed, false);
+
+  if (nh_.getParam("pose_covariance", pose_covariance) && pose_covariance.size() == 36)
+    for (int i = 0; i < 36; i++)
+      odometry_msg.pose.covariance[i] = pose_covariance[i];
+
+  if (nh_.getParam("twist_covariance", twist_covariance) && twist_covariance.size() == 36)
+    for (int i = 0; i < 36; i++)
+      odometry_msg.twist.covariance[i] = twist_covariance[i];
 }
 
 void Odometry::spin()
