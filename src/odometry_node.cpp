@@ -292,6 +292,7 @@ void Odometry::spin()
     odometry_msg.header.frame_id = "odom";
     odometry_msg.child_frame_id = "base_link";
     odometry_msg.twist.twist.linear.x = linear_velocity;
+    odometry_msg.twist.twist.linear.y = 0.0;
     odometry_msg.twist.twist.angular.z = angular_velocity;
     distance_msg.data = current_dist;
     position_msg.x = x;
