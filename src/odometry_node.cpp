@@ -169,7 +169,7 @@ void Odometry::spin()
   nh_.setParam("init_angle", ImuData::z_angle);
   ros::Time last_time = ros::Time::now();
   ros::Time current_time = ros::Time::now();
-  ros::Rate r(20);
+  ros::Rate rate(30);
   while (ros::ok())
   {
     ros::spinOnce();
@@ -303,6 +303,7 @@ void Odometry::spin()
     distance_pub_.publish(distance_msg);
     stopped_pub_.publish(stopped_msg);
     position_pub_.publish(position_msg);
+    rate.sleep();
   }
 }
 
