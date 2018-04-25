@@ -104,6 +104,7 @@ public:
   void spin();
 
 private:
+  int gpio_number;
   bool reset;
   double init_angle;
   double x_event;
@@ -133,6 +134,7 @@ Odometry::Odometry() : nh_()
   stopped_pub_ = nh_.advertise<std_msgs::Bool>("stopped", 10);
   position_pub_ = nh_.advertise<geometry_msgs::Point>("position", 10);
 
+  nh_.param("gpio_number", gpio_number, 296);
   nh_.param("reset", reset, false);
   nh_.param("init_angle", init_angle, 0.0);
   nh_.param("x_event", x_event, 0.0);
@@ -151,7 +153,7 @@ Odometry::Odometry() : nh_()
 
 void Odometry::spin()
 {
-  GPIO hall_sensor(165);
+  GPIO hall_sensor(gpio_number);
   I2cImu imu(nh_);
 
   double radius = 0.0575;

@@ -85,7 +85,7 @@ void GPIO::export_gpio()
   write_to_file("/sys/class/gpio/export", std::to_string(gpio));
   if (exported())
     return;
-  throw std::runtime_error("GPIO export failed");
+  throw std::runtime_error("GPIO " + std::to_string(gpio) + " export failed");
 }
 
 int GPIO::poll(int timeout)
