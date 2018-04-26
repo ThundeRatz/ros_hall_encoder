@@ -49,12 +49,7 @@ GPIO::GPIO(int gpio)
 {
   this->gpio = gpio;
   if (exported())
-  {
     std::cout << "GPIO " << gpio << " already exported" << std::endl;
-    if (fcntl(fd_value, F_GETFL) != -1)
-      // Já aberto
-      return;
-  }
   else
     export_gpio();
   // Outra opção: se direction for chamado, inicializar fd_value lá se
@@ -85,7 +80,7 @@ void GPIO::export_gpio()
   write_to_file("/sys/class/gpio/export", std::to_string(gpio));
   if (exported())
     return;
-  throw std::runtime_error("GPIO export failed");
+  throw std::runtime_error("GPIO " + std::to_string(gpio) + " export failed");
 }
 
 int GPIO::poll(int timeout)
@@ -156,7 +151,7 @@ bool GPIO::exported()
       throw std::runtime_error("stat error");
     }
   }
-  return st.st_mode & S_IFDIR;
+  return st.st_mode & (S_IFDIR | S_IFLNK);
 }
 
 // Could be optimized to run one thread and poll() on a fd set
