@@ -268,6 +268,7 @@ void Odometry::spin()
         }
     }
     dt = (current_time - last_time).toSec();
+    last_time = ros::Time::now();
     current_dist += ds;
     if (reversed)
     {
@@ -296,6 +297,7 @@ void Odometry::spin()
     odometry_msg.twist.twist.linear.x = linear_velocity;
     odometry_msg.twist.twist.linear.y = 0.0;
     odometry_msg.twist.twist.angular.z = angular_velocity;
+    odometry_msg.pose.pose.orientation.w = 1.;
     distance_msg.data = current_dist;
     position_msg.x = x;
     position_msg.y = y;
