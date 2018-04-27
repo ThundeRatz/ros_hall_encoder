@@ -151,6 +151,15 @@ Odometry::Odometry() : nh_()
       odometry_msg.twist.covariance[i] = twist_covariance[i];
 }
 
+int is_gpio_stable(const GPIO &gpio, int expected_value)
+{
+  // FIXME Use a constant sampling rate
+  for (int i = 0; i < 10; i++)
+    if (gpio != expected_value)
+      return 0;
+  return 1;
+}
+
 void Odometry::spin()
 {
   GPIO hall_sensor(gpio_number);
@@ -162,8 +171,7 @@ void Odometry::spin()
   double angular_velocity = 0.0;
   double linear_distance = 0.0;
   double current_dist = 0.0, last_dist = 0.0;
-  double ds = 0.0;
-  double x = 0.0, y = 0.0, dx = 0.0, dy = 0.0, dt;
+  double x = 0.0, y = 0.0;
   int next_state = !hall_sensor;
   ros::spinOnce();
   nh_.setParam("init_angle", ImuData::z_angle);
@@ -172,13 +180,13 @@ void Odometry::spin()
   ros::Rate rate(30);
   while (ros::ok())
   {
+    double ds = 0., dx = 0., dy = 0., dt;
     ros::spinOnce();
     nh_.getParam("init_angle", init_angle);
     nh_.getParam("reset", reset);
     nh_.getParam("enable_set_coordinates", enable_set_coordinates);
     nh_.getParam("reversed", reversed);
     current_time = ros::Time::now();
-    dx = dy = ds = 0;
     if (enable_set_coordinates)
     {
       nh_.getParam("x_event", x_event);
@@ -196,99 +204,32 @@ void Odometry::spin()
       current_dist = last_dist = 0;
       nh_.setParam("reset", false);
     }
-    else if (hall_sensor && next_state)
+    else if (hall_sensor == next_state)
     {
-      // If 10 readings or less were 1, consider it an error
-      for (int i = 0; i < 10; i++)
+      if (is_gpio_stable(hall_sensor, next_state))
       {
-        if (!ros::ok())
-        {
-          ROS_INFO("ROS stopped.");
-          return;
-        }
-        if (hall_sensor)
-        {
-          next_state = 1;
-        }
-        else
-        {
-          next_state = 0;
-          break;
-        }
-      }
-      // If more than 10 readings were 1, than the state of the sensor
-      // is really 1, so the next state must be 0.
-      if (next_state)
-      {
-        next_state = 0;
+        next_state = !next_state;
         double a = ImuData::z_angle - init_angle;
         ds = M_PI * radius;
         dx = ds * cos(a);
         dy = ds * sin(a);
       }
-      else
-      {
-        next_state = 1;
-      }
-    }
-
-    else if (!(hall_sensor) && !(next_state))
-    {
-      // If 10 readings or less were 0, consider it an error
-      for (int i = 0; i < 10; i++)
-      {
-        if (!ros::ok())
-        {
-          ROS_INFO("ROS stopped.");
-          return;
-        }
-        if (!hall_sensor)
-        {
-          next_state = 0;
-        }
-        else
-        {
-          next_state = 1;
-          break;
-        }
-      }
-        // If more than 10 readings were 0, than the state of the sensor
-        // is really 0, so the next state must be 1.
-        if (!next_state)
-        {
-          next_state = 1;
-          double a = ImuData::z_angle - init_angle;
-          ds = M_PI * radius;
-          dx = ds * cos(a);
-          dy = ds * sin(a);
-        }
-        else
-        {
-          next_state = 0;
-        }
     }
     dt = (current_time - last_time).toSec();
     last_time = ros::Time::now();
-    current_dist += ds;
     if (reversed)
     {
-      x -= dx;
-      y -= dy;
-      if (dt > 0.5)
-      {
-        linear_velocity -= (current_dist - last_dist) / dt;
-        last_dist = current_dist;
-      }
+      ds = -ds;
+      dx = -dx;
+      dy = -dy;
     }
-    else
+    current_dist += ds;
+    x += dx;
+    y += dy;
+    if (dt > 0.5)
     {
-      x += dx;
-      y += dy;
-      if (dt > 0.5)
-      {
-        linear_velocity += (current_dist - last_dist) / dt;
-        last_dist = current_dist;
-      }
+      linear_velocity = (current_dist - last_dist) / dt;
+      last_dist = current_dist;
     }
     angular_velocity = linear_velocity * sin(RobotData::servo_angle) / axes_distance;
     odometry_msg.header.stamp = current_time;
