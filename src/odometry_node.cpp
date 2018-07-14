@@ -139,6 +139,7 @@ void Odometry::spin()
 {
   const double radius = 0.0575;
   const double axes_distance = 0.28;
+  const double wheels_distance = 0.24; //medir direito
   double linear_velocity = 0.0;
   double angular_velocity = 0.0;
   double linear_distance = 0.0;
@@ -192,10 +193,18 @@ void Odometry::spin()
     next_state = !next_state;
     double a = ImuData::z_angle - init_angle;
     ds = M_PI * radius;
-    dx = ds * cos(a);
-    dy = ds * sin(a);
+    
     dt = (current_time - last_time).toSec();
     last_time = ros::Time::now();
+    
+    linear_velocity = ds / dt;
+    angular_velocity = linear_velocity * sin(RobotData::servo_angle) / axes_distance;
+    //TODO: converter o valor do servo_angle para radianos, e tambem ajustar o sinal da formula abaixo
+    
+    ds = ds + (angular_velocity*wheels_distance/2)*dt;
+    dx = ds * cos(a);
+    dy = ds * sin(a);
+    
     if (reversed)
     {
       ds = -ds;
@@ -205,8 +214,7 @@ void Odometry::spin()
     current_dist += ds;
     x += dx;
     y += dy;
-    linear_velocity = ds / dt;
-    angular_velocity = linear_velocity * sin(RobotData::servo_angle) / axes_distance;
+    
     odometry_msg.header.stamp = current_time;
     odometry_msg.header.frame_id = "odom";
     odometry_msg.child_frame_id = "base_link";
