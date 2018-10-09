@@ -1,0 +1,7 @@
+<launch>
+    <node pkg="odometry" type="mock_sensor_data" name="mock_sensor_data">
+        <remap from="turn_left" to="/mock_sensor_data/turn_left" />
+        <param name="turn_left" value="true" />
+    </node>
+    <node pkg="odometry" type="odometry_node" name="odometry_node" />
+</launch>
