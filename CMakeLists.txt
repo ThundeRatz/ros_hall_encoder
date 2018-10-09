@@ -128,7 +128,6 @@ include_directories(
 ## Declare a C++ library
 add_library(odometry
   src/odometry_node.cpp
-  src/gpio/gpio.cpp
 )
 
 ## Add cmake target dependencies of the library
@@ -141,6 +140,7 @@ add_library(odometry
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/odometry_node.cpp)
 add_executable(odometry_node src/odometry_node.cpp)
+add_executable(mock_sensor_data test/mock_sensor_data.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -161,6 +161,9 @@ target_link_libraries(odometry_node
   odometry
 )
 
+target_link_libraries(mock_sensor_data
+  ${catkin_LIBRARIES}
+)
 #############
 ## Install ##
 #############

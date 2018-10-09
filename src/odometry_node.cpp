@@ -31,8 +31,6 @@
 #include <nav_msgs/Odometry.h>
 #include <sensor_msgs/Imu.h>
 
-#include "gpio/gpio.h"
-
 #include <cmath>
 #include <vector>
 #include <iostream>
@@ -47,14 +45,22 @@ namespace RobotData
   double servo_angle;
 }
 
+namespace GPIO
+{
+  bool hall_sensor;
+}
+
 namespace
 {
-int is_gpio_stable(const GPIO &gpio, int expected_value)
+int is_gpio_stable(bool gpio, int expected_value)
 {
   // FIXME Use a constant sampling rate
   for (int i = 0; i < 10; i++)
+  {
     if (gpio != expected_value)
       return 0;
+    ros::spinOnce();
+  }
   return 1;
 }
 }  // namespace
@@ -95,6 +101,24 @@ private:
   ros::Subscriber euler_sub;
 };
 
+class GpioControl
+{
+  public:
+    explicit GpioControl(ros::NodeHandle node_handle)
+    {
+      hall_sensor_sub = node_handle.subscribe("/localization/encoder/hall_sensor", 10,
+                                              &GpioControl::hall_sensor_callback, this);
+    }
+
+    void hall_sensor_callback(const std_msgs::Bool::ConstPtr& hall_sensor_msg)
+    {
+      GPIO::hall_sensor = hall_sensor_msg->data;
+    }
+
+  private:
+    ros::Subscriber hall_sensor_sub;
+};
+
 class Odometry
 {
 public:
@@ -103,7 +127,6 @@ public:
   void spin();
 
 private:
-  int gpio_number;
   std::vector<double> pose_covariance;
   std::vector<double> twist_covariance;
 
@@ -124,8 +147,6 @@ Odometry::Odometry() : nh_()
   stopped_pub_ = nh_.advertise<std_msgs::Bool>("stopped", 10);
   position_pub_ = nh_.advertise<geometry_msgs::Point>("position", 10);
 
-  nh_.param("gpio_number", gpio_number, 296);
-
   if (nh_.getParam("pose_covariance", pose_covariance) && pose_covariance.size() == 36)
     for (int i = 0; i < 36; i++)
       odometry_msg.pose.covariance[i] = pose_covariance[i];
@@ -145,11 +166,10 @@ void Odometry::spin()
   double current_dist = 0.0;
   double x = 0.0, y = 0.0;
 
-  GPIO hall_sensor(gpio_number);
   I2cImu imu(nh_);
+  GpioControl gpio_control(nh_);
 
-  hall_sensor.edge(GPIO::EDGE_BOTH);
-  int next_state = !hall_sensor;
+  int next_state = !GPIO::hall_sensor;
   nh_.setParam("init_angle", ImuData::z_angle);
   ros::Time last_time = ros::Time::now();
   ros::Time current_time = ros::Time::now();
@@ -160,7 +180,6 @@ void Odometry::spin()
     bool reset, reversed;
     double x_event, y_event;
     bool enable_set_coordinates;
-    hall_sensor.poll(100);
     ros::spinOnce();
     nh_.getParam("init_angle", init_angle);
     nh_.getParam("reset", reset);
@@ -180,9 +199,9 @@ void Odometry::spin()
       current_dist = 0;
       nh_.setParam("reset", false);
     }
-    else if (hall_sensor == next_state)
+    else if (GPIO::hall_sensor == next_state)
     {
-      if (!is_gpio_stable(hall_sensor, next_state))
+      if (!is_gpio_stable(GPIO::hall_sensor, next_state))
         continue;
     }
     else
